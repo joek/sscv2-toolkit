@@ -1,0 +1,67 @@
+_schema-version: "3.1"
+ID: mashup-app-debugger
+version: 1.0.0
+description: Debugger for SAP Sales and Service Cloud V2 mashups (UI events, user JWT, SAML assertion destinations)
+
+parameters:
+  enable-parallel-deployments: true
+  # Origin(s) allowed to embed the app in an iframe (your SSCV2 tenant). Space separated.
+  frame-ancestors: "https://*.crm.cloud.sap"
+
+modules:
+  # ---------------------------------------------------------------- backend
+  - name: mashup-debugger-srv
+    type: nodejs
+    path: srv
+    parameters:
+      memory: 256M
+      disk-quota: 512M
+    build-parameters:
+      ignore: ["node_modules/"]
+    provides:
+      - name: srv-api
+        properties:
+          srv-url: ${default-url}
+    requires:
+      - name: mashup-debugger-xsuaa
+      - name: mashup-debugger-destination
+
+  # ---------------------------------------------------------------- app router
+  - name: mashup-debugger-approuter
+    type: approuter.nodejs
+    path: approuter
+    parameters:
+      memory: 256M
+      disk-quota: 512M
+    build-parameters:
+      ignore: ["node_modules/"]
+    requires:
+      - name: mashup-debugger-xsuaa
+      - name: srv-api
+        group: destinations
+        properties:
+          name: srv-api
+          url: ~{srv-url}
+          forwardAuthToken: true   # approuter sends the user JWT to the backend
+          timeout: 60000
+    properties:
+      # Session cookie must survive inside the SSCV2 iframe (third-party context)
+      COOKIES: '{"SameSite":"None"}'
+      httpHeaders: '[{"Content-Security-Policy":"frame-ancestors ''self'' ${frame-ancestors}"}]'
+
+resources:
+  - name: mashup-debugger-xsuaa
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: xsuaa
+      service-plan: application
+      path: ./xs-security.json
+      config:
+        xsappname: mashup-debugger-${org}-${space}
+        tenant-mode: dedicated
+
+  - name: mashup-debugger-destination
+    type: org.cloudfoundry.managed-service
+    parameters:
+      service: destination
+      service-plan: lite

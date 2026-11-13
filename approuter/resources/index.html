@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mashup Debugger</title>
+<style>
+  :root {
+    --bg: #f5f6f7; --panel: #fff; --text: #1d2d3e; --muted: #556b82; --border: #d9dee3;
+    --accent: #0a6ed1; --ok: #107e3e; --warn: #c35500; --err: #bb0000; --code: #f0f2f4;
+    font-family: "72", -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12171c; --panel: #1d232a; --text: #e6eaee; --muted: #9aa8b5; --border: #313a44;
+      --accent: #4db1ff; --ok: #5dc122; --warn: #ff9a3c; --err: #ff6161; --code: #161b21; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--panel);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .user { margin-left: auto; color: var(--muted); font-size: 12px; }
+  nav { display: flex; gap: 2px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  nav button { border: 0; background: none; padding: 10px 14px; cursor: pointer; color: var(--muted);
+    border-bottom: 2px solid transparent; font: inherit; white-space: nowrap; }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  main { padding: 16px; max-width: 1200px; margin: 0 auto; }
+  section { display: none; } section.active { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
+  .card h2 { font-size: 14px; margin: 0 0 10px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  .row > .grow { flex: 1; min-width: 180px; }
+  label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
+  input, select, textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px;
+    background: var(--panel); color: var(--text); width: 100%; }
+  textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; min-height: 80px; resize: vertical; }
+  button.btn { font: inherit; padding: 6px 12px; border-radius: 4px; border: 1px solid var(--accent); background: var(--accent);
+    color: #fff; cursor: pointer; white-space: nowrap; }
+  button.btn.ghost { background: transparent; color: var(--accent); }
+  button.btn:disabled { opacity: .5; cursor: default; }
+  pre { background: var(--code); border: 1px solid var(--border); border-radius: 4px; padding: 10px; margin: 0;
+    overflow: auto; max-height: 480px; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 13px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; border: 1px solid currentColor; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--err); } .muted { color: var(--muted); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
+  .log { max-height: 520px; overflow: auto; }
+  .log-entry { border-top: 1px solid var(--border); padding: 8px 0; }
+  .log-entry .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  tr.click { cursor: pointer; } tr.click:hover { background: var(--code); }
+  details summary { cursor: pointer; margin: 8px 0 4px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mashup Debugger</h1>
+  <span id="frameInfo" class="badge muted"></span>
+  <span class="user" id="userInfo"></span>
+</header>
+<nav id="tabs">
+  <button data-tab="events" class="active">UI Events</button>
+  <button data-tab="token">JWT Token</button>
+  <button data-tab="destinations">Destinations</button>
+  <button data-tab="call">Backend Call</button>
+</nav>
+<main>
+  <!-- ======================= UI EVENTS ======================= -->
+  <section id="events" class="active">
+    <div class="grid2">
+      <div class="card">
+        <h2>Mashup context</h2>
+        <dl class="kv" id="contextKv"></dl>
+        <details><summary>URL parameters</summary><pre id="urlParams"></pre></details>
+      </div>
+      <div class="card">
+        <h2>Send message to host</h2>
+        <div class="row">
+          <div class="grow"><label>Target origin</label><input id="pmOrigin" value="*"></div>
+        </div>
+        <label>Payload (JSON or text)</label>
+        <textarea id="pmPayload">{ "type": "ping" }</textarea>
+        <div class="row" style="margin-top:8px"><button class="btn" id="pmSend">postMessage to parent</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0">Received messages <span id="evCount" class="muted"></span></h2>
+        <div class="grow"><input id="evFilter" placeholder="Filter (origin or payload text)"></div>
+        <button class="btn ghost" id="evClear">Clear</button>
+      </div>
+      <div class="log" id="evLog"><p class="muted">Waiting for window "message" events…</p></div>
+    </div>
+  </section>
+
+  <!-- ======================= TOKEN ======================= -->
+  <section id="token">
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0">User JWT forwarded by the app router</h2>
+        <span id="tokExp" class="badge muted"></span>
+        <span style="margin-left:auto"></span>
+        <button class="btn" id="tokLoad">Fetch token</button>
+        <button class="btn ghost" id="tokCopy" disabled>Copy JWT</button>
+      </div>
+      <p class="muted" style="margin:0 0 8px">This is the token the backend receives and sends as <code>X-user-token</code> to the destination service for the token exchange.</p>
+      <dl class="kv" id="tokKv"></dl>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2>Header</h2><pre id="tokHeader">–</pre></div>
+      <div class="card"><h2>Payload</h2><pre id="tokPayload">–</pre></div>
+    </div>
+    <div class="card"><h2>Encoded</h2><pre id="tokRaw">–</pre></div>
+    <div class="card">
+      <div class="row"><h2 style="margin:0">Headers received by the backend</h2><span style="margin-left:auto"></span>
+        <button class="btn ghost" id="echoLoad">Load</button></div>
+      <pre id="echoOut">–</pre>
+    </div>
+  </section>
+
+  <!-- ======================= DESTINATIONS ======================= -->
+  <section id="destinations">
+    <div class="card">
+      <div class="row"><h2 style="margin:0">Destinations</h2><span style="margin-left:auto"></span>
+        <button class="btn" id="destLoad">Load list</button></div>
+      <table><thead><tr><th>Name</th><th>Authentication</th><th>Proxy</th><th>URL</th><th>Level</th></tr></thead>
+        <tbody id="destTable"><tr><td colspan="5" class="muted">Not loaded</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <div class="row">
+        <div class="grow"><label>Destination name</label><input id="destName" placeholder="e.g. SSCV2_SAML"></div>
+        <button class="btn" id="destFind" style="align-self:flex-end">Find (with token exchange)</button>
+      </div>
+      <div id="destResult"></div>
+    </div>
+  </section>
+
+  <!-- ======================= BACKEND CALL ======================= -->
+  <section id="call">
+    <div class="card">
+      <h2>Request</h2>
+      <div class="row">
+        <div style="width:110px"><label>Method</label>
+          <select id="cMethod"><option>GET</option><option>POST</option><option>PATCH</option><option>PUT</option><option>DELETE</option><option>HEAD</option></select></div>
+        <div class="grow"><label>Destination</label><input id="cDest" list="destNames" placeholder="destination name"></div>
+        <datalist id="destNames"></datalist>
+      </div>
+      <div class="row">
+        <div class="grow"><label>Path (appended to destination URL; <code>{{param}}</code> is replaced by mashup URL parameters)</label>
+          <input id="cPath" placeholder="/sap/c4c/api/v1/account-service/accounts/{{accountId}}"></div>
+      </div>
+      <div class="grid2">
+        <div><label>Additional headers (JSON)</label><textarea id="cHeaders">{ "Accept": "application/json" }</textarea></div>
+        <div><label>Body</label><textarea id="cBody"></textarea></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label style="display:flex;gap:6px;align-items:center;margin:0;color:var(--text)">
+          <input type="checkbox" id="cCsrf" style="width:auto"> Fetch CSRF token first (for modifying requests)</label>
+        <span style="margin-left:auto"></span>
+        <button class="btn" id="cSend">Send</button>
+      </div>
+    </div>
+    <div id="cResult"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const pretty = (v) => typeof v === "string" ? v : JSON.stringify(v, null, 2);
+  const store = {
+    get(k, d) { try { return JSON.parse(localStorage.getItem("mdbg." + k)) ?? d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("mdbg." + k, JSON.stringify(v)); } catch { /* ignore */ } },
+  };
+  const urlParams = Object.fromEntries(new URLSearchParams(location.search));
+
+  // ---------------------------------------------------------------- tabs
+  $("tabs").addEventListener("click", (e) => {
+    const tab = e.target.dataset.tab; if (!tab) return;
+    document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    document.querySelectorAll("main section").forEach((s) => s.classList.toggle("active", s.id === tab));
+    store.set("tab", tab);
+  });
+  const lastTab = store.get("tab"); if (lastTab) document.querySelector(`nav button[data-tab="${lastTab}"]`)?.click();
+
+  // ---------------------------------------------------------------- API helper (approuter CSRF aware)
+  let csrfToken = null;
+  async function api(path, opts = {}) {
+    const method = opts.method || "GET";
+    const headers = { Accept: "application/json", ...(opts.body ? { "Content-Type": "application/json" } : {}) };
+    if (method !== "GET") {
+      if (!csrfToken) {
+        const r = await fetch("api/echo", { headers: { "X-CSRF-Token": "Fetch" }, credentials: "same-origin" });
+        csrfToken = r.headers.get("x-csrf-token");
+      }
+      headers["X-CSRF-Token"] = csrfToken;
+    }
+    const res = await fetch("api/" + path, { method, headers, body: opts.body && JSON.stringify(opts.body), credentials: "same-origin" });
+    if (res.status === 403 && res.headers.get("x-csrf-token") === "Required") { csrfToken = null; return api(path, opts); }
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("json")) throw new Error(`Unexpected response (${res.status}) – session probably expired, reload the page.`);
+    const data = await res.json();
+    if (!res.ok) { const err = new Error(data.error || res.statusText); err.details = data.details; throw err; }
+    return data;
+  }
+  function errorHtml(e) {
+    return `<div class="card err"><b>${esc(e.message)}</b>${e.details ? `<pre>${esc(pretty(e.details))}</pre>` : ""}</div>`;
+  }
+  function busy(btn, fn) {
+    return async () => { btn.disabled = true; try { await fn(); } finally { btn.disabled = false; } };
+  }
+
+  // ---------------------------------------------------------------- header / context
+  const framed = window.self !== window.top;
+  $("frameInfo").textContent = framed ? "embedded (iframe)" : "standalone";
+  $("frameInfo").className = "badge " + (framed ? "ok" : "muted");
+  fetch("user-api/currentUser", { credentials: "same-origin" }).then((r) => r.ok ? r.json() : null)
+    .then((u) => { if (u) $("userInfo").textContent = `${u.firstname || ""} ${u.lastname || ""} · ${u.email || u.name}`; }).catch(() => {});
+
+  const ctx = {
+    "Embedded": framed ? "yes" : "no",
+    "Referrer": document.referrer || "–",
+    "Ancestor origins": location.ancestorOrigins ? [...location.ancestorOrigins].join(", ") || "–" : "n/a",
+    "URL": location.href,
+  };
+  $("contextKv").innerHTML = Object.entries(ctx).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+  $("urlParams").textContent = pretty(urlParams);
+  if (document.referrer) { try { $("pmOrigin").value = new URL(document.referrer).origin; } catch { /* ignore */ } }
+
+  // ---------------------------------------------------------------- UI events
+  const events = [];
+  function renderEvents() {
+    const f = $("evFilter").value.toLowerCase();
+    const shown = events.filter((e) => !f || e.origin.toLowerCase().includes(f) || e.text.toLowerCase().includes(f));
+    $("evCount").textContent = `(${shown.length}/${events.length})`;
+    $("evLog").innerHTML = shown.length ? shown.slice().reverse().map((e) =>
+      `<div class="log-entry"><div class="meta">${esc(e.time)} · ${e.dir === "out" ? "→ sent to" : "← from"} <b>${esc(e.origin)}</b>${e.type ? " · type: " + esc(e.type) : ""}</div><pre>${esc(e.text)}</pre></div>`
+    ).join("") : `<p class="muted">No messages${f ? " match the filter" : " yet"}.</p>`;
+  }
+  function logEvent(dir, origin, data) {
+    let text; try { text = typeof data === "string" ? data : JSON.stringify(data, null, 2); } catch { text = String(data); }
+    events.push({ dir, origin: origin || "(unknown)", text, type: data && typeof data === "object" ? data.type || data.eventType || data.name : "",
+      time: new Date().toLocaleTimeString(undefined, { hour12: false }) + "." + String(Date.now() % 1000).padStart(3, "0") });
+    renderEvents();
+  }
+  window.addEventListener("message", (e) => { if (e.source !== window) logEvent("in", e.origin, e.data); });
+  $("evFilter").addEventListener("input", renderEvents);
+  $("evClear").addEventListener("click", () => { events.length = 0; renderEvents(); });
+  $("pmSend").addEventListener("click", () => {
+    const raw = $("pmPayload").value; let payload; try { payload = JSON.parse(raw); } catch { payload = raw; }
+    const origin = $("pmOrigin").value || "*";
+    try { window.parent.postMessage(payload, origin); logEvent("out", origin, payload); }
+    catch (err) { logEvent("out", origin, "ERROR: " + err.message); }
+  });
+
+  // ---------------------------------------------------------------- token
+  let jwt = null, expTimer = null;
+  $("tokLoad").addEventListener("click", busy($("tokLoad"), async () => {
+    try {
+      const t = await api("token");
+      jwt = t.jwt; $("tokCopy").disabled = false;
+      $("tokHeader").textContent = pretty(t.header);
+      $("tokPayload").textContent = pretty(t.payload);
+      $("tokRaw").textContent = t.jwt;
+      const p = t.payload;
+      const kv = {
+        "User": p.user_name || p.email, "Email": p.email, "Origin (IdP)": p.origin, "Issuer": p.iss,
+        "Client": p.client_id || p.azp, "Grant type": p.grant_type, "Zone / tenant": p.zid,
+        "Scopes": (p.scope || []).join(" "), "Issued": t.issuedAt, "Expires": t.expiresAt,
+      };
+      $("tokKv").innerHTML = Object.entries(kv).filter(([, v]) => v).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("");
+      clearInterval(expTimer);
+      const expMs = Date.parse(t.expiresAt);
+      const tick = () => {
+        const s = Math.round((expMs - Date.now()) / 1000);
+        $("tokExp").textContent = s > 0 ? `expires in ${Math.floor(s / 60)}m ${s % 60}s` : "expired";
+        $("tokExp").className = "badge " + (s > 300 ? "ok" : s > 0 ? "warn" : "err");
+      };
+      tick(); expTimer = setInterval(tick, 1000);
+    } catch (e) { $("tokKv").innerHTML = errorHtml(e); }
+  }));
+  $("tokCopy").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(jwt); $("tokCopy").textContent = "Copied"; }
+    catch { const r = document.createRange(); r.selectNodeContents($("tokRaw")); getSelection().removeAllRanges(); getSelection().addRange(r); $("tokCopy").textContent = "Selected – press Ctrl+C"; }
+    setTimeout(() => ($("tokCopy").textContent = "Copy JWT"), 2000);
+  });
+  $("echoLoad").addEventListener("click", busy($("echoLoad"), async () => {
+    try { $("echoOut").textContent = pretty(await api("echo")); } catch (e) { $("echoOut").textContent = e.message; }
+  }));
+
+  // ---------------------------------------------------------------- destinations
+  $("destLoad").addEventListener("click", busy($("destLoad"), async () => {
+    try {
+      const list = await api("destinations");
+      $("destTable").innerHTML = list.length ? list.map((d) =>
+        `<tr class="click" data-name="${esc(d.name)}"><td><b>${esc(d.name)}</b></td><td>${esc(d.authentication)}</td><td>${esc(d.proxyType)}</td><td>${esc(d.url)}</td><td class="muted">${esc(d.level)}</td></tr>`
+      ).join("") : `<tr><td colspan="5" class="muted">No destinations found</td></tr>`;
+      $("destNames").innerHTML = list.map((d) => `<option value="${esc(d.name)}">`).join("");
+    } catch (e) { $("destTable").innerHTML = `<tr><td colspan="5">${errorHtml(e)}</td></tr>`; }
+  }));
+  $("destTable").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-name]"); if (!tr) return;
+    $("destName").value = tr.dataset.name; $("cDest").value = tr.dataset.name; $("destFind").click();
+  });
+
+  function authTokenHtml(t) {
+    if (!t) return `<p class="muted">No auth token returned.</p>`;
+    return `<dl class="kv"><dt>Type</dt><dd>${esc(t.type)}</dd>
+      ${t.expires_in ? `<dt>Expires in</dt><dd>${esc(t.expires_in)} s</dd>` : ""}
+      ${t.http_header ? `<dt>HTTP header</dt><dd>${esc(t.http_header.key)}: ${esc(t.http_header.value.slice(0, 60))}…</dd>` : ""}
+      ${t.error ? `<dt>Error</dt><dd class="err">${esc(t.error)}</dd>` : ""}</dl>
+      ${t.decodedAssertion ? `<details open><summary>Decoded SAML assertion</summary><pre>${esc(formatXml(t.decodedAssertion))}</pre></details>` : ""}
+      ${t.decodedJwt ? `<details open><summary>Decoded JWT</summary><pre>${esc(pretty(t.decodedJwt))}</pre></details>` : ""}
+      <details><summary>Raw</summary><pre>${esc(pretty({ ...t, decodedAssertion: undefined, decodedJwt: undefined }))}</pre></details>`;
+  }
+  function formatXml(xml) {
+    let indent = 0;
+    return xml.replace(/>\s*</g, ">\n<").split("\n").map((line) => {
+      if (/^<\//.test(line)) indent = Math.max(indent - 1, 0);
+      const out = "  ".repeat(indent) + line;
+      if (/^<[^!?/][^>]*[^/]>$/.test(line) && !/<\/[^>]+>$/.test(line)) indent++;
+      return out;
+    }).join("\n");
+  }
+  $("destFind").addEventListener("click", busy($("destFind"), async () => {
+    const name = $("destName").value.trim(); if (!name) return;
+    $("destResult").innerHTML = `<p class="muted">Loading…</p>`;
+    try {
+      const d = await api("destinations/" + encodeURIComponent(name));
+      $("destResult").innerHTML = `
+        <div class="grid2" style="margin-top:10px">
+          <div><h2>Configuration</h2><pre>${esc(pretty(d.destinationConfiguration))}</pre></div>
+          <div><h2>Auth tokens (after token exchange)</h2>${(d.authTokens.length ? d.authTokens : [null]).map(authTokenHtml).join("<hr>")}</div>
+        </div>`;
+    } catch (e) { $("destResult").innerHTML = errorHtml(e); }
+  }));
+
+  // ---------------------------------------------------------------- backend call
+  const saved = store.get("call", {});
+  for (const [id, key] of [["cMethod", "method"], ["cDest", "destination"], ["cPath", "path"], ["cHeaders", "headers"], ["cBody", "body"]]) {
+    if (saved[key] != null) $(id).value = saved[key];
+  }
+  $("cCsrf").checked = !!saved.fetchCsrf;
+  const substitute = (s) => s.replace(/\{\{\s*([\w.-]+)\s*\}\}/g, (m, k) => (k in urlParams ? encodeURIComponent(urlParams[k]) : m));
+
+  $("cSend").addEventListener("click", busy($("cSend"), async () => {
+    const form = { method: $("cMethod").value, destination: $("cDest").value.trim(), path: $("cPath").value,
+      headers: $("cHeaders").value, body: $("cBody").value, fetchCsrf: $("cCsrf").checked };
+    store.set("call", form);
+    let headers = {};
+    try { headers = form.headers.trim() ? JSON.parse(form.headers) : {}; }
+    catch { $("cResult").innerHTML = errorHtml(new Error("Headers must be valid JSON")); return; }
+    $("cResult").innerHTML = `<p class="muted">Calling…</p>`;
+    try {
+      const r = await api("call", { method: "POST", body: { ...form, path: substitute(form.path), headers } });
+      const s = r.response.status;
+      let body = r.response.body;
+      try { body = pretty(JSON.parse(body)); } catch { /* not JSON */ }
+      $("cResult").innerHTML = `
+        <div class="card">
+          <div class="row"><span class="badge ${s < 300 ? "ok" : s < 400 ? "warn" : "err"}">${s} ${esc(r.response.statusText)}</span>
+            <span class="muted">${r.durationMs} ms</span><code style="word-break:break-all">${esc(r.request.method)} ${esc(r.request.url)}</code></div>
+          <pre>${esc(body) || '<span class="muted">(empty body)</span>'}</pre>
+          <details><summary>Response headers</summary><pre>${esc(pretty(r.response.headers))}</pre></details>
+          <details><summary>Request headers sent to backend</summary><pre>${esc(pretty(r.request.headers))}</pre></details>
+          ${r.steps.length ? `<details><summary>Steps</summary><pre>${esc(pretty(r.steps))}</pre></details>` : ""}
+          <details><summary>Auth token used</summary>${authTokenHtml(r.authToken)}</details>
+        </div>`;
+    } catch (e) { $("cResult").innerHTML = errorHtml(e); }
+  }));
+})();
+</script>
+</body>
+</html>
